@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const { GoogleGenAI } = require("@google/genai");
+const { buildGeminiReimbursementPromptV3 } = require("./prompts/reimbursementPromptV3");
 const { extractWithMockRules } = require("./services/extractors/mockExtractor");
 const { validateExtractResponse } = require("./validators/responseValidator");
 
@@ -16,22 +17,6 @@ function extractByMock(text, extraRisks = []) {
   };
 }
 
-function buildPrompt(text) {
-  return [
-    "你是财务报销信息抽取助手。请从用户输入中抽取报销信息。",
-    "只返回合法 JSON，不要返回 Markdown，不要返回解释。",
-    "JSON 字段必须固定为：报销类型、候选报销类型、金额、日期、风险点。",
-    "字段要求：",
-    "- 报销类型：string 或 null；无法明确判断时返回 null。",
-    "- 候选报销类型：string[]；可包含住宿费、交通费、餐饮费、办公费、通讯费、差旅费等。",
-    "- 金额：number 或 null。",
-    "- 日期：string 或 null；如果能判断，使用 YYYY-MM-DD。",
-    "- 风险点：string[]；没有风险点时返回空数组。",
-    "用户输入：",
-    text
-  ].join("\n");
-}
-
 function parseJsonContent(content) {
   if (typeof content !== "string") {
     throw new Error("Gemini response content must be a string.");
@@ -44,7 +29,7 @@ async function callGemini(text) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   const response = await ai.models.generateContent({
     model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
-    contents: buildPrompt(text),
+    contents: buildGeminiReimbursementPromptV3(text),
     config: {
       responseMimeType: "application/json",
       temperature: 0

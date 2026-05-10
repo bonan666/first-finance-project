@@ -1,4 +1,5 @@
 const { buildReimbursementPromptV2 } = require("../../prompts/reimbursementPromptV2");
+const { buildReimbursementPromptV3 } = require("../../prompts/reimbursementPromptV3");
 
 function parseLlmJson(content) {
   if (typeof content !== "string") {
@@ -13,7 +14,7 @@ async function extractWithLlm(text, llmClient) {
     throw new Error("LLM client with createChatCompletion(messages) is required.");
   }
 
-  const messages = buildReimbursementPromptV2(text);
+  const messages = buildReimbursementPromptV3(text);
   const content = await llmClient.createChatCompletion(messages);
 
   return parseLlmJson(content);
@@ -22,5 +23,6 @@ async function extractWithLlm(text, llmClient) {
 module.exports = {
   extractWithLlm,
   buildReimbursementPromptV2,
+  buildReimbursementPromptV3,
   parseLlmJson
 };

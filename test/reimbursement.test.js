@@ -4,7 +4,12 @@ const { auditReimbursementController } = require("../src/controllers/auditContro
 const { extractReimbursementInfo } = require("../src/services/reimbursementExtractor");
 const { auditReimbursement } = require("../src/services/reimbursementAuditor");
 const { readReimbursementPolicy } = require("../src/services/knowledge/policyReader");
-const { buildReimbursementPromptV2 } = require("../src/services/extractors/llmExtractor");
+const {
+  extractWithLlm,
+  buildReimbursementPromptV2,
+  buildReimbursementPromptV3
+} = require("../src/services/extractors/llmExtractor");
+const { buildGeminiReimbursementPromptV3 } = require("../src/prompts/reimbursementPromptV3");
 const { validateExtractRequest } = require("../src/validators/requestValidator");
 const { extractByLLM, parseJsonContent } = require("../src/llm");
 
@@ -262,6 +267,64 @@ test("builds the second version prompt for LLM extraction", () => {
   assert.deepEqual(messages[1], {
     role: "user",
     content: "输入：\n2026年4月30日交通报销300元。"
+  });
+});
+
+test("builds the third version prompt with strict Gemini constraints", () => {
+  const messages = buildReimbursementPromptV3("2026年3月3日住宿和交通一共报销500元。");
+  const systemPrompt = messages[0].content;
+
+  assert.equal(messages.length, 2);
+  assert.equal(messages[0].role, "system");
+  assert.match(systemPrompt, /候选报销类型[\s\S]*只能从以下明细类型中选择/);
+  assert.match(systemPrompt, /禁止把 "差旅费" 放入 "候选报销类型"/);
+  assert.match(systemPrompt, /报销类型[\s\S]*"差旅费"[\s\S]*"办公费"[\s\S]*null/);
+  assert.match(systemPrompt, /风险点[\s\S]*只能从以下固定枚举中选择/);
+  assert.match(systemPrompt, /金额" 为 null[\s\S]*"金额无法从文本中明确判断"/);
+  assert.match(systemPrompt, /日期" 为 null[\s\S]*"日期无法从文本中明确判断"/);
+  assert.match(systemPrompt, /报销类型" 为 null[\s\S]*"报销类型无法从文本中明确判断"/);
+  assert.match(systemPrompt, /住宿和交通[\s\S]*没有 "出差"、"差旅"、"출장"[\s\S]*"文本中存在多个报销类型候选，需人工复核"/);
+  assert.match(systemPrompt, /帮我提交一下这笔费用[\s\S]*"输入内容不是有效的报销描述"/);
+  assert.match(systemPrompt, /酒店住宿报销600元[\s\S]*"候选报销类型": \["住宿费"\][\s\S]*"日期无法从文本中明确判断"/);
+  assert.deepEqual(messages[1], {
+    role: "user",
+    content: "输入：\n2026年3月3日住宿和交通一共报销500元。"
+  });
+});
+
+test("builds Gemini prompt content from prompt v3", () => {
+  const prompt = buildGeminiReimbursementPromptV3("麻烦帮我提交一下这笔费用。");
+
+  assert.match(prompt, /严格使用固定枚举原文/);
+  assert.match(prompt, /## 用户输入\n麻烦帮我提交一下这笔费用。/);
+});
+
+test("extractWithLlm uses prompt v3 messages", async () => {
+  let capturedMessages = null;
+  const llmClient = {
+    async createChatCompletion(messages) {
+      capturedMessages = messages;
+      return JSON.stringify({
+        报销类型: "交通费",
+        候选报销类型: ["交通费"],
+        金额: 300,
+        日期: "2026-04-30",
+        风险点: []
+      });
+    }
+  };
+
+  const result = await extractWithLlm("2026年4月30日交通报销300元。", llmClient);
+
+  assert.equal(capturedMessages[0].role, "system");
+  assert.match(capturedMessages[0].content, /Prompt|任务|强制枚举/);
+  assert.match(capturedMessages[0].content, /禁止把 "差旅费" 放入 "候选报销类型"/);
+  assert.deepEqual(result, {
+    报销类型: "交通费",
+    候选报销类型: ["交通费"],
+    金额: 300,
+    日期: "2026-04-30",
+    风险点: []
   });
 });
 
